@@ -1,6 +1,6 @@
-Flask==2.3.3
-tensorflow==2.13.0
-numpy==1.24.3
-Pillow==10.0.0
-opencv-python-headless==4.8.0.74
-gunicorn==20.1.0
+Flask
+tensorflow-cpu==2.13.0
+numpy
+Pillow
+opencv-python-headless
+gunicorn
