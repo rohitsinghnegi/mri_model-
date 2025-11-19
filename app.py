@@ -1,37 +1,61 @@
+```python
 import os
 import numpy as np
 import cv2
 import tensorflow as tf
 import warnings
 from flask import Flask, request, render_template, redirect, jsonify
-from PIL import Image
+import gc
 
 warnings.filterwarnings("ignore")
 
 app = Flask(__name__)
 
-# --- Load Model 1: Brain Tumor MRI ---
-MODEL_PATH_MRI = "best_mri_classifier.h5"
-DATA_DIR_MRI = "brain_tumor_classification-mri/Training/"
-model_mri = tf.keras.models.load_model(MODEL_PATH_MRI)
-CLASS_NAMES_MRI = ['glioma', 'meningioma', 'notumor', 'pituitary']
-print(f"✅ Brain Tumor MRI model loaded. Classes: {CLASS_NAMES_MRI}")
+# --- Configuration ---
+MODEL_PATHS = {
+    'mri': "best_mri_classifier.h5",
+    'skin': "best_skin_classifier.h5",
+    'xray': "best_xray_classifier.h5"
+}
 
-# --- Load Model 2: Skin Disease ---
-MODEL_PATH_SKIN = "best_skin_classifier.h5"
-DATA_DIR_SKIN = "skin-disease-dataset/train_set/"
-model_skin = tf.keras.models.load_model(MODEL_PATH_SKIN)
-CLASS_NAMES_SKIN = ['actinic keratosis', 'basal cell carcinoma', 'dermatofibroma', 'melanoma', 'nevus', 'pigmented benign keratosis', 'seborrheic keratosis', 'squamous cell carcinoma', 'vascular lesion']
-print(f"✅ Skin Disease model loaded. Classes: {CLASS_NAMES_SKIN}")
+CLASS_NAMES = {
+    'mri': ['glioma', 'meningioma', 'notumor', 'pituitary'],
+    'skin': ['actinic keratosis', 'basal cell carcinoma', 'dermatofibroma', 'melanoma', 'nevus', 'pigmented benign keratosis', 'seborrheic keratosis', 'squamous cell carcinoma', 'vascular lesion'],
+    'xray': ['Bacterial Pneumonia', 'Corona Virus Disease', 'Normal', 'Tuberculosis', 'Viral Pneumonia']
+}
 
-# --- Load Model 3: Lung Disease X-Ray ---
-MODEL_PATH_XRAY = "best_xray_classifier.h5"
-# --- THIS PATH IS NOW CORRECTED ---
-DATA_DIR_XRAY = "Lung Disease Dataset/" 
-model_xray = tf.keras.models.load_model(MODEL_PATH_XRAY)
-CLASS_NAMES_XRAY = ['Bacterial Pneumonia', 'Corona Virus Disease', 'Normal', 'Tuberculosis', 'Viral Pneumonia']
-print(f"✅ Lung X-Ray model loaded. Classes: {CLASS_NAMES_XRAY}")
+MODEL_NAMES = {
+    'mri': "Brain Tumor MRI",
+    'skin': "Skin Disease",
+    'xray': "Lung Disease X-Ray"
+}
 
+# Global variable to hold the currently loaded model
+current_model = None
+current_model_type = None
+
+def get_model(model_type):
+    global current_model, current_model_type
+    
+    if current_model_type == model_type and current_model is not None:
+        return current_model
+    
+    # Clear memory before loading new model
+    if current_model is not None:
+        del current_model
+        tf.keras.backend.clear_session()
+        gc.collect()
+        print(f"🗑️ Cleared memory for previous model.")
+
+    print(f"⏳ Loading {model_type} model...")
+    path = MODEL_PATHS.get(model_type)
+    if not path:
+        raise ValueError("Invalid model type")
+        
+    current_model = tf.keras.models.load_model(path)
+    current_model_type = model_type
+    print(f"✅ {MODEL_NAMES[model_type]} loaded.")
+    return current_model
 
 # --- Universal Preprocessing Function ---
 def preprocess_image(image_stream):
@@ -59,31 +83,16 @@ def upload_file():
         
         model_type = request.form.get('model_type')
 
-        if file:
+        if file and model_type:
             try:
                 img = preprocess_image(file)
                 
-                if model_type == 'mri':
-                    preds = model_mri.predict(img)
-                    class_names = CLASS_NAMES_MRI
-                    model_name = "Brain Tumor MRI"
+                # Load model on demand
+                model = get_model(model_type)
                 
-                elif model_type == 'skin':
-                    preds = model_skin.predict(img)
-                    class_names = CLASS_NAMES_SKIN
-                    model_name = "Skin Disease"
-
-                elif model_type == 'xray':
-                    preds = model_xray.predict(img)
-                    class_names = CLASS_NAMES_XRAY
-                    model_name = "Lung Disease X-Ray"
-                
-                else:
-                    return jsonify({
-                    "model_used": model_name,
-                    "predicted_class": predicted_class,
-                    "confidence": f"{confidence:.2f}%"
-                })
+                preds = model.predict(img)
+                class_names = CLASS_NAMES[model_type]
+                model_name = MODEL_NAMES[model_type]
 
                 class_id = np.argmax(preds[0])
                 confidence = preds[0][class_id] * 100
@@ -96,8 +105,8 @@ def upload_file():
                 return render_template('index.html', result=result_str, confidence=conf_str, model_used=model_str)
 
             except Exception as e:
-                print(e)
-                return jsonify({"error": f"An error occurred. Ensure you uploaded an image."}), 500
+                print(f"Error: {e}")
+                return render_template('index.html', error=f"An error occurred: {str(e)}")
 
     return render_template('index.html', result=None, confidence=None, model_used=None, error=None)
 
@@ -112,32 +121,21 @@ def predict_api():
         return jsonify({"error": "No selected file"}), 400
     
     model_type = request.form.get('model_type')
-    if not model_type:
-        return jsonify({"error": "No model_type provided"}), 400
+    if not model_type or model_type not in MODEL_PATHS:
+        return jsonify({"error": "Invalid or missing model_type. Choose 'mri', 'skin', or 'xray'."}), 400
 
     try:
         img = preprocess_image(file)
         
-        if model_type == 'mri':
-            preds = model_mri.predict(img)
-            class_names = CLASS_NAMES_MRI
-            model_name = "Brain Tumor MRI"
+        # Load model on demand
+        model = get_model(model_type)
         
-        elif model_type == 'skin':
-            preds = model_skin.predict(img)
-            class_names = CLASS_NAMES_SKIN
-            model_name = "Skin Disease"
-
-        elif model_type == 'xray':
-            preds = model_xray.predict(img)
-            class_names = CLASS_NAMES_XRAY
-            model_name = "Lung Disease X-Ray"
-        
-        else:
-            return jsonify({"error": "Invalid model type. Choose 'mri', 'skin', or 'xray'."}), 400
+        preds = model.predict(img)
+        class_names = CLASS_NAMES[model_type]
+        model_name = MODEL_NAMES[model_type]
 
         class_id = np.argmax(preds[0])
-        confidence = float(preds[0][class_id] * 100) # Convert to float for JSON serialization
+        confidence = float(preds[0][class_id] * 100)
         predicted_class = class_names[class_id]
 
         return jsonify({
@@ -153,3 +151,4 @@ def predict_api():
 # --- Run the App ---
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
+```
