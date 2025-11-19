@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRI Model API</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; text-align: center; }
+        .container { border: 1px solid #ccc; padding: 20px; border-radius: 8px; margin-top: 20px; }
+        .result { margin-top: 20px; font-weight: bold; color: #2c3e50; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Medical Image Classification API</h1>
+    <p>Upload an image to classify it.</p>
+    
+    <div class="container">
+        <form action="/" method="post" enctype="multipart/form-data">
+            <p>
+                <label for="model_type">Select Model:</label>
+                <select name="model_type" id="model_type">
+                    <option value="mri">Brain Tumor MRI</option>
+                    <option value="skin">Skin Disease</option>
+                    <option value="xray">Lung Disease X-Ray</option>
+                </select>
+            </p>
+            <p>
+                <input type="file" name="file" accept="image/*" required>
+            </p>
+            <p>
+                <input type="submit" value="Predict">
+            </p>
+        </form>
+
+        {% if result %}
+        <div class="result">
+            <p>{{ model_used }}</p>
+            <p>{{ result }}</p>
+            <p>{{ confidence }}</p>
+        </div>
+        {% endif %}
+
+        {% if error %}
+        <div class="error">
+            <p>{{ error }}</p>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
