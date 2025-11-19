@@ -1,4 +1,3 @@
-```python
 import os
 import numpy as np
 import cv2
@@ -151,4 +150,3 @@ def predict_api():
 # --- Run the App ---
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
-```
