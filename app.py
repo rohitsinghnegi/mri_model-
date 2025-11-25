@@ -56,8 +56,12 @@ def get_model(model_type):
     print(f"✅ {MODEL_NAMES[model_type]} loaded.")
     return current_model
 
-# --- Universal Preprocessing Function ---
-def preprocess_image(image_stream):
+# --- Model-Specific Preprocessing Functions ---
+def preprocess_mri(image_stream):
+    """
+    Preprocessing for MRI model - uses EfficientNetV2 preprocessing.
+    This model works correctly with EfficientNetV2 normalization.
+    """
     filestr = image_stream.read()
     npimg = np.frombuffer(filestr, np.uint8)
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
@@ -67,7 +71,53 @@ def preprocess_image(image_stream):
     img = cv2.resize(img, (224, 224))
     img_array = tf.keras.applications.efficientnet_v2.preprocess_input(img.astype(np.float32))
     img_array = np.expand_dims(img_array, axis=0)
+    print("✓ Using EfficientNetV2 preprocessing for MRI")
     return img_array
+
+def preprocess_skin(image_stream):
+    """
+    Preprocessing for Skin model - uses standard /255 normalization.
+    Medical imaging models are typically trained with [0, 1] range.
+    """
+    filestr = image_stream.read()
+    npimg = np.frombuffer(filestr, np.uint8)
+    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Image could not be read.")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img, (224, 224))
+    img_array = img.astype(np.float32) / 255.0  # Standard normalization [0, 1]
+    img_array = np.expand_dims(img_array, axis=0)
+    print("✓ Using standard /255 normalization for Skin")
+    return img_array
+
+def preprocess_xray(image_stream):
+    """
+    Preprocessing for X-Ray model - uses standard /255 normalization.
+    Medical imaging models are typically trained with [0, 1] range.
+    """
+    filestr = image_stream.read()
+    npimg = np.frombuffer(filestr, np.uint8)
+    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Image could not be read.")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img, (224, 224))
+    img_array = img.astype(np.float32) / 255.0  # Standard normalization [0, 1]
+    img_array = np.expand_dims(img_array, axis=0)
+    print("✓ Using standard /255 normalization for X-Ray")
+    return img_array
+
+def get_preprocessing_function(model_type):
+    """
+    Returns the appropriate preprocessing function for the given model type.
+    """
+    preprocessing_map = {
+        'mri': preprocess_mri,
+        'skin': preprocess_skin,
+        'xray': preprocess_xray
+    }
+    return preprocessing_map.get(model_type)
 
 
 # --- Main Web Page Route ---
@@ -84,7 +134,12 @@ def upload_file():
 
         if file and model_type:
             try:
-                img = preprocess_image(file)
+                # Get the appropriate preprocessing function for this model
+                preprocess_func = get_preprocessing_function(model_type)
+                if preprocess_func is None:
+                    raise ValueError(f"Invalid model type: {model_type}")
+                
+                img = preprocess_func(file)
                 
                 # Load model on demand
                 model = get_model(model_type)
@@ -96,6 +151,15 @@ def upload_file():
                 class_id = np.argmax(preds[0])
                 confidence = preds[0][class_id] * 100
                 predicted_class = class_names[class_id]
+
+                # Log all predictions for debugging
+                print(f"\n{'='*50}")
+                print(f"Model: {model_name}")
+                print(f"Predicted: {predicted_class} ({confidence:.2f}%)")
+                print(f"All predictions:")
+                for i, (cls, prob) in enumerate(zip(class_names, preds[0])):
+                    print(f"  {cls}: {prob*100:.2f}%")
+                print(f"{'='*50}\n")
 
                 result_str = f"Prediction: {predicted_class}"
                 conf_str = f"Confidence: {confidence:.2f}%"
@@ -124,7 +188,12 @@ def predict_api():
         return jsonify({"error": "Invalid or missing model_type. Choose 'mri', 'skin', or 'xray'."}), 400
 
     try:
-        img = preprocess_image(file)
+        # Get the appropriate preprocessing function for this model
+        preprocess_func = get_preprocessing_function(model_type)
+        if preprocess_func is None:
+            return jsonify({"error": f"Invalid model type: {model_type}"}), 400
+        
+        img = preprocess_func(file)
         
         # Load model on demand
         model = get_model(model_type)
@@ -136,6 +205,15 @@ def predict_api():
         class_id = np.argmax(preds[0])
         confidence = float(preds[0][class_id] * 100)
         predicted_class = class_names[class_id]
+
+        # Log all predictions for debugging
+        print(f"\n{'='*50}")
+        print(f"API Request - Model: {model_name}")
+        print(f"Predicted: {predicted_class} ({confidence:.2f}%)")
+        print(f"All predictions:")
+        for i, (cls, prob) in enumerate(zip(class_names, preds[0])):
+            print(f"  {cls}: {prob*100:.2f}%")
+        print(f"{'='*50}\n")
 
         return jsonify({
             "model_used": model_name,
